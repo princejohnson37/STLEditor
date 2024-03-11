@@ -17,6 +17,7 @@
   "dependencies": {
     "@types/dat.gui": "^0.7.12",
     "dat.gui": "^0.7.9",
+    "three-bvh-csg": "^0.0.16",
     "three-csg-ts": "^3.1.14"
   }
 }
