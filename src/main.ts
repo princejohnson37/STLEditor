@@ -1,151 +1,6 @@
-// import * as THREE from "three";
-// import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-// import Stats from "three/examples/jsm/libs/stats.module";
-// import { GUI } from "dat.gui";
+
 import { LoadSTLGeometry } from "./loader/LoadSTLModel";
-// import { CSG } from './utils/CSGMesh'
 
-// const scene = new THREE.Scene();
-// scene.add(new THREE.AxesHelper(5));
-
-// const gui = new GUI();
-// const raycaster = new THREE.Raycaster();
-// const pointer = new THREE.Vector2();
-// const camera = new THREE.PerspectiveCamera(
-//   75,
-//   window.innerWidth / window.innerHeight,
-//   0.1,
-//   1000
-//   );
-//   camera.position.z = 120;
-  
-//   const renderer = new THREE.WebGLRenderer();
-//   renderer.setSize(window.innerWidth, window.innerHeight);
-//   document.body.appendChild(renderer.domElement);
-  
-//   const orbitControls = new OrbitControls(camera, renderer.domElement);
-// const stats = new Stats();
-// document.body.appendChild(stats.dom);
-
-
-// const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1);
-// scene.add(hemisphereLight);
-
-// const hemisphereLightHelper = new THREE.HemisphereLightHelper(
-//   hemisphereLight,
-//   10
-// );
-// scene.add(hemisphereLightHelper);
-
-// const lightFolder = gui.addFolder("Light");
-// lightFolder.add(hemisphereLight, "intensity", 0, 1);
-// lightFolder.add(hemisphereLightHelper, "visible");
-// lightFolder.add(hemisphereLight.position, "x", -100, 100);
-// lightFolder.add(hemisphereLight.position, "y", -100, 100);
-// lightFolder.add(hemisphereLight.position, "z", -100, 100);
-
-// let loadedMesh: THREE.Mesh;
-// let loadedMeshCSG: CSG;
-// let sphere: THREE.Mesh;
-// let sphereCSG: CSG;
-
-// async function init() {
-//   const geometry =new THREE.BoxGeometry(10, 10, 10);
-//   const material = new THREE.MeshStandardMaterial();
-//   loadedMesh = new THREE.Mesh(geometry, material);
-//   scene.add(loadedMesh);
-  
-//   sphere = new THREE.Mesh(
-//     new THREE.SphereGeometry(1, 5, 5),
-//     new THREE.MeshStandardMaterial()
-//     );   
-//   scene.add(sphere); 
-//     const sphereFolder = gui.addFolder("sphere");
-//     sphereFolder.add(sphere.position, "x", -100, 100);
-//     // update brush's updatematrixWorld  when position is updated
-//     // sphereFolder.add(sphere, "updateMatrixWorld");
-//     sphereFolder.add(sphere.position, "y", -100, 100);
-//     sphereFolder.add(sphere.position, "z", -100, 100);
-//     sphereFolder.add(sphere.scale, "x", 0, 100);
-//     sphereFolder.open();
-    
-//   }
-  
-//   init();
-  
-//   window.addEventListener("resize", onWindowResize, false);
-  
-//   function performBooleanOperation() {
-//     if (loadedMeshCSG && sphereCSG) {
-//         const subResCSG = loadedMeshCSG.subtract(sphereCSG);
-//         const subRes = CSG.toMesh(subResCSG, new THREE.Matrix4(), [new THREE.MeshStandardMaterial(), new THREE.MeshStandardMaterial()]) 
-//         subRes.position.x = 5;
-//         disposeMesh(loadedMesh);
-    
-//     scene.add(subRes);
-    
-//     console.log('sub', subResCSG);
-//   }
-// }
-
-// document.addEventListener(
-//   "click",
-//   function (event) {
-//     event.preventDefault();
-    
-//     // Calculate mouse position in normalized device coordinates
-//     pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-//     pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    
-//     // Raycasting
-//     raycaster.setFromCamera(pointer, camera);
-//     const intersects = raycaster.intersectObjects([sphere]); // Check for intersection with the sphere
-//     console.log(intersects[0]);
-//     if (intersects.length > 0) {
-//       performBooleanOperation(); // Perform boolean operation if sphere is clicked
-//     }
-//   },
-//   false
-//   );
-//   function disposeMesh(mesh: THREE.Mesh) {
-//   // Remove the mesh from the scene
-//   scene.remove(mesh);
-  
-//   // Dispose of the geometry
-//   if (mesh.geometry) {
-//     mesh.geometry.dispose();
-//   }
-
-//   // Dispose of the material
-//   if (mesh.material) {
-//     if (Array.isArray(mesh.material)) {
-//       mesh.material.forEach((material) => {
-//         material.dispose();
-//       });
-//     } else {
-//       mesh.material.dispose();
-//     }
-//   }
-// }
-
-// function render() {
-//   renderer.render(scene, camera);
-// }
-// function onWindowResize() {
-//   camera.aspect = window.innerWidth / window.innerHeight;
-//   camera.updateProjectionMatrix();
-//   renderer.setSize(window.innerWidth, window.innerHeight);
-//   render();
-// }
-// function animate() {
-//   stats.update();
-//   hemisphereLightHelper.update();
-
-//   render();
-//   requestAnimationFrame(animate);
-// }
-
-// animate();
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import Stats from 'three/examples/jsm/libs/stats.module'
@@ -153,29 +8,13 @@ import { CSG } from './utils/CSGMesh'
 
 const scene = new THREE.Scene()
 
-var light1 = new THREE.SpotLight(0xffffff, 100)
-light1.position.set(2.5, 5, 5)
-light1.angle = Math.PI / 4
-light1.penumbra = 0.5
-light1.castShadow = true
-light1.shadow.mapSize.width = 1024
-light1.shadow.mapSize.height = 1024
-light1.shadow.camera.near = 0.5
-light1.shadow.camera.far = 20
-scene.add(light1)
-
-var light2 = new THREE.SpotLight(0xffffff, 100)
-light2.position.set(-2.5, 5, 5)
-light2.angle = Math.PI / 4
-light2.penumbra = 0.5
-light2.castShadow = true
-light2.shadow.mapSize.width = 1024
-light2.shadow.mapSize.height = 1024
-light2.shadow.camera.near = 0.5
-light2.shadow.camera.far = 20
-scene.add(light2)
-
 const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1);
+//create a hemisphere light that cast light from bottom 
+// const hemisphereLight1 = new THREE.HemisphereLight(0x080820, 0xffffbb, 1);
+// scene.add(hemisphereLight1);
+
+// const hemisphereLight2 = new THREE.HemisphereLight(0xffffbb, 0x080820, 1);
+// scene.add(hemisphereLight2);
 scene.add(hemisphereLight);
 
 const hemisphereLightHelper = new THREE.HemisphereLightHelper(hemisphereLight, 10);
@@ -206,13 +45,15 @@ const controls = new OrbitControls(camera, renderer.domElement)
         new THREE.MeshStandardMaterial({ color: 0xff0000 })
     )
     const sphereMesh = new THREE.Mesh(
-        new THREE.SphereGeometry(1.45, 8, 8),
+        new THREE.SphereGeometry(1.45),
         new THREE.MeshStandardMaterial({ color: 0x0000ff })
     )
     cubeMesh.position.set(-5, 0, -6)
     scene.add(cubeMesh)
-    sphereMesh.position.set(-2, 0, -6)
+    cubeMesh.updateMatrixWorld();
+    sphereMesh.position.set(-5, 0, 6)
     scene.add(sphereMesh)
+    sphereMesh.updateMatrixWorld();
 
     const cubeCSG = CSG.fromMesh(cubeMesh, 0)
     const sphereCSG = CSG.fromMesh(sphereMesh, 1)
@@ -223,67 +64,10 @@ const controls = new OrbitControls(camera, renderer.domElement)
         new THREE.Matrix4(),
         [cubeMesh.material, sphereMesh.material]
     )
-    cubeSphereIntersectMesh.position.set(-2.5, 0, -3)
+    cubeSphereIntersectMesh.position.set(0, 4, 0)
     scene.add(cubeSphereIntersectMesh)
-
-    // create 3 cylinders and union them
-    const cylinderMesh1 = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.85, 0.85, 2, 8, 1, false),
-        new THREE.MeshStandardMaterial({
-            color: 0xffbf00,
-        })
-    )
-    const cylinderMesh2 = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.85, 0.85, 2, 8, 1, false),
-        new THREE.MeshStandardMaterial({
-            color: 0x00ff00,
-        })
-    )
-    const cylinderMesh3 = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.85, 0.85, 2, 8, 1, false),
-        new THREE.MeshStandardMaterial({
-            color: 0x9f2b68,
-        })
-    )
-    cylinderMesh1.position.set(1, 0, -6)
-    scene.add(cylinderMesh1)
-    cylinderMesh2.position.set(3, 0, -6)
-    cylinderMesh2.geometry.rotateX(Math.PI / 2)
-    scene.add(cylinderMesh2)
-    cylinderMesh3.position.set(5, 0, -6)
-    cylinderMesh3.geometry.rotateZ(Math.PI / 2)
-    scene.add(cylinderMesh3)
-
-    const cylinderCSG1 = CSG.fromMesh(cylinderMesh1, 2)
-    const cylinderCSG2 = CSG.fromMesh(cylinderMesh2, 3)
-    const cylinderCSG3 = CSG.fromMesh(cylinderMesh3, 4)
-    const cylindersUnionCSG = cylinderCSG1.union(
-        cylinderCSG2.union(cylinderCSG3)
-    )
-
-    const cylindersUnionMesh = CSG.toMesh(
-        cylindersUnionCSG,
-        new THREE.Matrix4()
-    )
-    cylindersUnionMesh.material = [
-        cylinderMesh1.material,
-        cylinderMesh2.material,
-        cylinderMesh3.material,
-    ]
-    cylindersUnionMesh.position.set(2.5, 0, -3)
-    scene.add(cylindersUnionMesh)
-
-    //subtract the cylindersUnionCSG from the cubeSphereIntersectCSG
-    const finalCSG = cubeSphereIntersectCSG.subtract(cylindersUnionCSG)
-    const finalMesh = CSG.toMesh(finalCSG, new THREE.Matrix4())
-    finalMesh.material = [
-        cubeMesh.material,
-        sphereMesh.material,
-        cylinderMesh1.material,
-        cylinderMesh2.material,
-        cylinderMesh3.material,
-    ]
-    scene.add(finalMesh)
+    scene.remove(cubeMesh)
+    scene.remove(sphereMesh)
 }
 
 window.addEventListener('resize', onWindowResize, false)
