@@ -1,135 +1,645 @@
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import Stats from "three/examples/jsm/libs/stats.module";
-import { GUI } from "dat.gui";
-import { CSG } from "three-csg-ts";
+import * as dat from "three/examples/jsm/libs/lil-gui.module.min.js";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import * as BufferGeometryUtils from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import {
+	acceleratedRaycast,
+	computeBoundsTree,
+	disposeBoundsTree,
+	CONTAINED,
+	INTERSECTED,
+	NOT_INTERSECTED,
+	MeshBVHHelper,
+} from "three-mesh-bvh";
 import { LoadSTLGeometry, LoadSTLModel } from "./loader/LoadSTLModel";
 
-const scene = new THREE.Scene();
-scene.add(new THREE.AxesHelper(5));
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 
-const gui = new GUI();
-const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
+let stats: Stats;
+let scene: THREE.Scene,
+	camera: THREE.Camera,
+	renderer: THREE.WebGLRenderer,
+	controls: OrbitControls;
+let targetMesh: THREE.Mesh,
+	brush: THREE.Mesh,
+	symmetryBrush: THREE.Mesh,
+	bvhHelper: THREE.Object3D<THREE.Object3DEventMap>;
+let normalZ = new THREE.Vector3(0, 0, 1);
+let brushActive = false;
+let mouse = new THREE.Vector2(),
+	lastMouse = new THREE.Vector2();
+let mouseState = false,
+	lastMouseState = false;
+let lastCastPose = new THREE.Vector3();
+let material: THREE.Material,
+	rightClick = false;
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.z = 120;
+const params = {
+	matcap: "Clay",
 
-const renderer = new THREE.WebGLRenderer();
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
+	size:50,
+	brush: "clay",
+	intensity: 50,
+	maxSteps: 10,
+	invert: false,
+	symmetrical: true,
+	flatShading: false,
 
-const stats = new Stats();
-document.body.appendChild(stats.dom);
+	depth: 10,
+	displayHelper: false,
+};
 
-const orbitControls = new OrbitControls(camera, renderer.domElement);
-
-const hemisphereLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 1);
-scene.add(hemisphereLight);
-
-const hemisphereLightHelper = new THREE.HemisphereLightHelper(hemisphereLight, 10);
-scene.add(hemisphereLightHelper);
-
-const lightFolder = gui.addFolder("Light");
-lightFolder.add(hemisphereLight, "intensity", 0, 1);
-lightFolder.add(hemisphereLightHelper, "visible");
-lightFolder.add(hemisphereLight.position, "x", -100, 100);
-lightFolder.add(hemisphereLight.position, "y", -100, 100);
-lightFolder.add(hemisphereLight.position, "z", -100, 100);
-
-let loadedMesh;
-let sphere;
-
-async function init() {
-	const geometry = await LoadSTLGeometry("/models/model.stl");
-	const material = new THREE.MeshStandardMaterial();
-	loadedMesh = new THREE.Mesh(geometry, material);
-	scene.add(loadedMesh);
-
-	sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 5, 5), new THREE.MeshStandardMaterial());
-	scene.add(sphere);
-
-	const sphereFolder = gui.addFolder("sphere");
-	sphereFolder.add(sphere.position, "x", -100, 100);
-	sphereFolder.add(sphere.position, "y", -100, 100);
-	sphereFolder.add(sphere.position, "z", -100, 100);
-	sphereFolder.add(sphere.scale, "x", 0, 100);
-	sphereFolder.open();
-}
+const matcaps: any = {};
 
 init();
+render();
 
-window.addEventListener("resize", onWindowResize, false);
-function onWindowResize() {
-	camera.aspect = window.innerWidth / window.innerHeight;
-	camera.updateProjectionMatrix();
-	renderer.setSize(window.innerWidth, window.innerHeight);
-	render();
+// reset the sculpt mesh
+async function reset() {
+	// dispose of the mesh if it exists
+	if (targetMesh) {
+		targetMesh.geometry.dispose();
+		scene.remove(targetMesh);
+	}
+
+	// merge the vertices because they're not already merged
+	// let geometry2: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1, 100);
+	let geometry = await LoadSTLGeometry('models/model2.stl');
+
+	geometry.deleteAttribute("uv");
+	geometry = BufferGeometryUtils.mergeVertices(geometry);
+	geometry.attributes.position.setUsage(THREE.DynamicDrawUsage);
+	geometry.attributes.normal.setUsage(THREE.DynamicDrawUsage);
+	geometry.computeBoundsTree({ setBoundingBox: false });
+
+	// disable frustum culling because the verts will be updated
+	// targetMesh = new THREE.Mesh(geometry2, material);
+
+	targetMesh =  LoadSTLModel(geometry, material);
+	console.log(targetMesh)
+
+	targetMesh.frustumCulled = false;
+	scene.add(targetMesh);
+
+	// initialize bvh helper
+	if (!bvhHelper) {
+		bvhHelper = new MeshBVHHelper(targetMesh, params.depth);
+		if (params.displayHelper) {
+			scene.add(bvhHelper);
+		}
+	}
+
+	bvhHelper.mesh = targetMesh;
+	bvhHelper.update();
 }
 
-function animate() {
-	stats.update();
-	hemisphereLightHelper.update();
+function init() {
+	const bgColor = 0x060609;
 
-	render();
-	requestAnimationFrame(animate);
+	// renderer setup
+	renderer = new THREE.WebGLRenderer({ antialias: true });
+	renderer.setPixelRatio(window.devicePixelRatio);
+	renderer.setSize(window.innerWidth, window.innerHeight);
+	renderer.setClearColor(bgColor, 1);
+	renderer.outputEncoding = THREE.sRGBEncoding;
+	document.body.appendChild(renderer.domElement);
+	renderer.domElement.style.touchAction = "none";
+
+	// scene setup
+	scene = new THREE.Scene();
+	scene.fog = new THREE.Fog(0x263238 / 2, 20, 60);
+
+	const light = new THREE.DirectionalLight(0xffffff, 0.5);
+	light.position.set(1, 1, 1);
+	scene.add(light);
+	scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+
+	// initialize brush cursor
+	const brushSegments = [new THREE.Vector3(), new THREE.Vector3(0, 0, 1)];
+	for (let i = 0; i < 50; i++) {
+		const nexti = i + 1;
+		const x1 = Math.sin((2 * Math.PI * i) / 50);
+		const y1 = Math.cos((2 * Math.PI * i) / 50);
+
+		const x2 = Math.sin((2 * Math.PI * nexti) / 50);
+		const y2 = Math.cos((2 * Math.PI * nexti) / 50);
+
+		brushSegments.push(new THREE.Vector3(x1, y1, 0), new THREE.Vector3(x2, y2, 0));
+	}
+
+	brush = new THREE.LineSegments();
+	brush.geometry.setFromPoints(brushSegments);
+	brush.material.color.set(0xfb8c00);
+	scene.add(brush);
+
+	symmetryBrush = brush.clone();
+	scene.add(symmetryBrush);
+
+	// camera setup
+	camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50);
+	camera.position.set(100, 0, 3);
+	camera.far = 100;
+	camera.updateProjectionMatrix();
+
+	// stats setup
+	stats = new Stats();
+	document.body.appendChild(stats.dom);
+
+	// init matcaps
+	matcaps["Clay"] = new THREE.TextureLoader().load(
+		"./textures/B67F6B_4B2E2A_6C3A34_F3DBC6-256px.png"
+	);
+	matcaps["Red Wax"] = new THREE.TextureLoader().load(
+		"./textures/763C39_431510_210504_55241C-256px.png"
+	);
+	matcaps["Shiny Green"] = new THREE.TextureLoader().load(
+		"./textures/3B6E10_E3F2C3_88AC2E_99CE51-256px.png"
+	);
+	matcaps["Normal"] = new THREE.TextureLoader().load(
+		"./textures/7877EE_D87FC5_75D9C7_1C78C0-256px.png"
+	);
+
+	material = new THREE.MeshStandardMaterial({
+		flatShading: params.flatShading,
+	});
+
+
+	for (const key in matcaps) {
+		matcaps[key].encoding = THREE.sRGBEncoding;
+	}
+
+	// geometry setup
+	reset();
+
+	const gui = new dat.GUI();
+	gui.add(params, "matcap", Object.keys(matcaps));
+
+	const sculptFolder = gui.addFolder("Sculpting");
+	sculptFolder.add(params, "brush", ["normal", "clay", "flatten"]);
+	sculptFolder.add(params, "size").min(0.025).max(50).step(0.5);
+	sculptFolder.add(params, "intensity").min(1).max(100).step(1);
+	sculptFolder.add(params, "maxSteps").min(1).max(25).step(1);
+	sculptFolder.add(params, "symmetrical");
+	sculptFolder.add(params, "invert");
+	sculptFolder.add(params, "flatShading").onChange((value) => {
+		targetMesh.material.flatShading = value;
+		targetMesh.material.needsUpdate = true;
+	});
+	sculptFolder.open();
+
+	const helperFolder = gui.addFolder("BVH Helper");
+	helperFolder
+		.add(params, "depth")
+		.min(1)
+		.max(20)
+		.step(1)
+		.onChange((d) => {
+			bvhHelper.depth = parseFloat(d);
+			bvhHelper.update();
+		});
+	helperFolder.add(params, "displayHelper").onChange((display) => {
+		if (display) {
+			scene.add(bvhHelper);
+			bvhHelper.update();
+		} else {
+			scene.remove(bvhHelper);
+		}
+	});
+	helperFolder.open();
+
+	gui.add({ reset }, "reset");
+	gui.add(
+		{
+			rebuildBVH: () => {
+				// don't create a bounding box because it's used in BVH construction but
+				// will be out of date after moving vertices. See issue #222.
+				targetMesh.geometry.computeBoundsTree({ setBoundingBox: true });
+				bvhHelper.update();
+			},
+		},
+		"rebuildBVH"
+	);
+	gui.open();
+
+	window.addEventListener(
+		"resize",
+		function () {
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
+
+			renderer.setSize(window.innerWidth, window.innerHeight);
+		},
+		false
+	);
+
+	window.addEventListener("pointermove", function (e) {
+		mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+		mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+		brushActive = true;
+	});
+
+	window.addEventListener(
+		"pointerdown",
+		(e) => {
+			mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+			mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+			mouseState = Boolean(e.buttons & 3);
+			rightClick = Boolean(e.buttons & 2);
+			brushActive = true;
+
+			const raycaster = new THREE.Raycaster();
+			raycaster.setFromCamera(mouse, camera);
+			raycaster.firstHitOnly = true;
+
+			const res = raycaster.intersectObject(targetMesh);
+			controls.enabled = res.length === 0;
+		},
+		true
+	);
+
+	window.addEventListener("pointerup", (e) => {
+		mouseState = Boolean(e.buttons & 3);
+		if (e.pointerType === "touch") {
+			brushActive = false;
+		}
+	});
+
+	window.addEventListener("contextmenu", function (e) {
+		e.preventDefault();
+	});
+
+	window.addEventListener("wheel", function (e) {
+		let delta = e.deltaY;
+
+		if (e.deltaMode === 1) {
+			delta *= 40;
+		}
+
+		if (e.deltaMode === 2) {
+			delta *= 40;
+		}
+
+		params.size += delta * 0.0001;
+		params.size = Math.max(Math.min(params.size, 0.25), 0.025);
+		gui.controllersRecursive().forEach((c) => c.updateDisplay());
+	});
+
+	controls = new OrbitControls(camera, renderer.domElement);
+	controls.minDistance = 1.5;
+
+	controls.addEventListener("start", function () {
+		this.active = true;
+	});
+
+	controls.addEventListener("end", function () {
+		this.active = false;
+	});
+}
+
+// Run the perform the brush movement
+function performStroke(point, brushObject, brushOnly = false, accumulatedFields: any = {}) {
+	const {
+		accumulatedTriangles = new Set(),
+		accumulatedIndices = new Set(),
+		accumulatedTraversedNodeIndices = new Set(),
+	} = accumulatedFields;
+
+	const inverseMatrix = new THREE.Matrix4();
+	inverseMatrix.copy(targetMesh.matrixWorld).invert();
+
+	const sphere = new THREE.Sphere();
+	sphere.center.copy(point).applyMatrix4(inverseMatrix);
+	sphere.radius = params.size;
+
+	// Collect the intersected vertices
+	const indices = new Set();
+	const tempVec = new THREE.Vector3();
+	const normal = new THREE.Vector3();
+	const indexAttr = targetMesh.geometry.index;
+	const posAttr = targetMesh.geometry.attributes.position;
+	const normalAttr = targetMesh.geometry.attributes.normal;
+	const triangles = new Set();
+	const bvh: any = targetMesh.geometry.boundsTree;
+	bvh.shapecast({
+		intersectsBounds: (box, isLeaf, score, depth, nodeIndex) => {
+			accumulatedTraversedNodeIndices.add(nodeIndex);
+
+			const intersects = sphere.intersectsBox(box);
+			const { min, max } = box;
+			if (intersects) {
+				for (let x = 0; x <= 1; x++) {
+					for (let y = 0; y <= 1; y++) {
+						for (let z = 0; z <= 1; z++) {
+							tempVec.set(
+								x === 0 ? min.x : max.x,
+								y === 0 ? min.y : max.y,
+								z === 0 ? min.z : max.z
+							);
+							if (!sphere.containsPoint(tempVec)) {
+								return INTERSECTED;
+							}
+						}
+					}
+				}
+
+				return CONTAINED;
+			}
+
+			return intersects ? INTERSECTED : NOT_INTERSECTED;
+		},
+
+		intersectsTriangle: (tri, index, contained) => {
+			const triIndex = index;
+			triangles.add(triIndex);
+			accumulatedTriangles.add(triIndex);
+
+			const i3 = 3 * index;
+			const a = i3 + 0;
+			const b = i3 + 1;
+			const c = i3 + 2;
+			const va = indexAttr.getX(a);
+			const vb = indexAttr.getX(b);
+			const vc = indexAttr.getX(c);
+			if (contained) {
+				indices.add(va);
+				indices.add(vb);
+				indices.add(vc);
+
+				accumulatedIndices.add(va);
+				accumulatedIndices.add(vb);
+				accumulatedIndices.add(vc);
+			} else {
+				if (sphere.containsPoint(tri.a)) {
+					indices.add(va);
+					accumulatedIndices.add(va);
+				}
+
+				if (sphere.containsPoint(tri.b)) {
+					indices.add(vb);
+					accumulatedIndices.add(vb);
+				}
+
+				if (sphere.containsPoint(tri.c)) {
+					indices.add(vc);
+					accumulatedIndices.add(vc);
+				}
+			}
+
+			return false;
+		},
+	});
+
+	// Compute the average normal at this point
+	const localPoint = new THREE.Vector3();
+	localPoint.copy(point).applyMatrix4(inverseMatrix);
+
+	const planePoint = new THREE.Vector3();
+	let totalPoints = 0;
+	indices.forEach((index) => {
+		tempVec.fromBufferAttribute(normalAttr, index);
+		normal.add(tempVec);
+
+		// compute the average point for cases where we need to flatten
+		// to the plane.
+		if (!brushOnly) {
+			totalPoints++;
+			tempVec.fromBufferAttribute(posAttr, index);
+			planePoint.add(tempVec);
+		}
+	});
+	normal.normalize();
+	brushObject.quaternion.setFromUnitVectors(normalZ, normal);
+
+	if (totalPoints) {
+		planePoint.multiplyScalar(1 / totalPoints);
+	}
+
+	// Early out if we just want to adjust the brush
+	if (brushOnly) {
+		return;
+	}
+
+	// perform vertex adjustment
+	const targetHeight = params.intensity * 0.0001;
+	const plane = new THREE.Plane();
+	plane.setFromNormalAndCoplanarPoint(normal, planePoint);
+
+	indices.forEach((index) => {
+		tempVec.fromBufferAttribute(posAttr, index);
+
+		// compute the offset intensity
+		const dist = tempVec.distanceTo(localPoint);
+		const negated = params.invert !== rightClick ? -1 : 1;
+		let intensity = 1.0 - dist / params.size;
+
+		// offset the vertex
+		if (params.brush === "clay") {
+			intensity = Math.pow(intensity, 3);
+			const planeDist = plane.distanceToPoint(tempVec);
+			const clampedIntensity = negated * Math.min(intensity * 4, 1.0);
+			tempVec.addScaledVector(
+				normal,
+				clampedIntensity * targetHeight - negated * planeDist * clampedIntensity * 0.3
+			);
+		} else if (params.brush === "normal") {
+			intensity = Math.pow(intensity, 2);
+			tempVec.addScaledVector(normal, negated * intensity * targetHeight);
+		} else if (params.brush === "flatten") {
+			intensity = Math.pow(intensity, 2);
+
+			const planeDist = plane.distanceToPoint(tempVec);
+			tempVec.addScaledVector(normal, -planeDist * intensity * params.intensity * 0.01 * 0.5);
+		}
+
+		posAttr.setXYZ(index, tempVec.x, tempVec.y, tempVec.z);
+		normalAttr.setXYZ(index, 0, 0, 0);
+	});
+
+	// If we found vertices
+	if (indices.size) {
+		posAttr.needsUpdate = true;
+	}
+}
+
+function updateNormals(triangles, indices) {
+	const tempVec = new THREE.Vector3();
+	const tempVec2 = new THREE.Vector3();
+	const indexAttr = targetMesh.geometry.index;
+	const posAttr = targetMesh.geometry.attributes.position;
+	const normalAttr = targetMesh.geometry.attributes.normal;
+
+	// accumulate the normals in place in the normal buffer
+	const triangle = new THREE.Triangle();
+	triangles.forEach((tri) => {
+		const tri3 = tri * 3;
+		const i0 = tri3 + 0;
+		const i1 = tri3 + 1;
+		const i2 = tri3 + 2;
+
+		const v0 = indexAttr.getX(i0);
+		const v1 = indexAttr.getX(i1);
+		const v2 = indexAttr.getX(i2);
+
+		triangle.a.fromBufferAttribute(posAttr, v0);
+		triangle.b.fromBufferAttribute(posAttr, v1);
+		triangle.c.fromBufferAttribute(posAttr, v2);
+		triangle.getNormal(tempVec2);
+
+		if (indices.has(v0)) {
+			tempVec.fromBufferAttribute(normalAttr, v0);
+			tempVec.add(tempVec2);
+			normalAttr.setXYZ(v0, tempVec.x, tempVec.y, tempVec.z);
+		}
+
+		if (indices.has(v1)) {
+			tempVec.fromBufferAttribute(normalAttr, v1);
+			tempVec.add(tempVec2);
+			normalAttr.setXYZ(v1, tempVec.x, tempVec.y, tempVec.z);
+		}
+
+		if (indices.has(v2)) {
+			tempVec.fromBufferAttribute(normalAttr, v2);
+			tempVec.add(tempVec2);
+			normalAttr.setXYZ(v2, tempVec.x, tempVec.y, tempVec.z);
+		}
+	});
+
+	// normalize the accumulated normals
+	indices.forEach((index) => {
+		tempVec.fromBufferAttribute(normalAttr, index);
+		tempVec.normalize();
+		normalAttr.setXYZ(index, tempVec.x, tempVec.y, tempVec.z);
+	});
+
+	normalAttr.needsUpdate = true;
 }
 
 function render() {
-	renderer.render(scene, camera);
-}
+	requestAnimationFrame(render);
 
-function performBooleanOperation() {
-	if (loadedMesh && sphere) {
-		const subRes = CSG.subtract(loadedMesh, sphere);
-		subRes.position.x = 5;
-		disposeMesh(loadedMesh)
+	stats.begin();
 
-		scene.add(subRes);
+	material.matcap = matcaps[params.matcap];
 
-		console.log(subRes);
-	}
-}
+	if (controls.active || !brushActive) {
+		// If the controls are being used then don't perform the strokes
+		brush.visible = false;
+		symmetryBrush.visible = false;
+		lastCastPose.setScalar(Infinity);
+	} else {
+		const raycaster = new THREE.Raycaster();
+		raycaster.setFromCamera(mouse, camera);
+		raycaster.firstHitOnly = true;
 
-document.addEventListener(
-	"click",
-	function (event) {
-		event.preventDefault();
+		const hit = raycaster.intersectObject(targetMesh, true)[0];
+		// if we hit the target mesh
+		if (hit) {
+			brush.visible = true;
+			brush.scale.set(params.size, params.size, 0.1);
+			brush.position.copy(hit.point);
 
-		// Calculate mouse position in normalized device coordinates
-		pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-		pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+			symmetryBrush.visible = params.symmetrical;
+			symmetryBrush.scale.set(params.size, params.size, 0.1);
+			symmetryBrush.position.copy(hit.point);
+			symmetryBrush.position.x *= -1;
 
-		// Raycasting
-		raycaster.setFromCamera(pointer, camera);
-		const intersects = raycaster.intersectObjects([sphere]); // Check for intersection with the sphere
+			controls.enabled = false;
 
-		if (intersects.length > 0) {
-			performBooleanOperation(); // Perform boolean operation if sphere is clicked
-		}
-	},
-	false
-);
-function disposeMesh(mesh) {
-	// Remove the mesh from the scene
-	scene.remove(mesh);
+			// if the last cast pose was missed in the last frame then set it to
+			// the current point so we don't streak across the surface
+			if (lastCastPose.x === Infinity) {
+				lastCastPose.copy(hit.point);
+			}
 
-	// Dispose of the geometry
-	if (mesh.geometry) {
-		mesh.geometry.dispose();
-	}
+			// If the mouse isn't pressed don't perform the stroke
+			if (!(mouseState || lastMouseState)) {
+				performStroke(hit.point, brush, true);
+				if (params.symmetrical) {
+					hit.point.x *= -1;
+					performStroke(hit.point, symmetryBrush, true);
+					hit.point.x *= -1;
+				}
 
-	// Dispose of the material
-	if (mesh.material) {
-		if (Array.isArray(mesh.material)) {
-			mesh.material.forEach((material) => {
-				material.dispose();
-			});
+				lastMouse.copy(mouse);
+				lastCastPose.copy(hit.point);
+			} else {
+				// compute the distance the mouse moved and that the cast point moved
+				const mdx = (mouse.x - lastMouse.x) * window.innerWidth * window.devicePixelRatio;
+				const mdy = (mouse.y - lastMouse.y) * window.innerHeight * window.devicePixelRatio;
+				let mdist = Math.sqrt(mdx * mdx + mdy * mdy);
+				let castDist = hit.point.distanceTo(lastCastPose);
+
+				const step = params.size * 0.15;
+				const percent = Math.max(step / castDist, 1 / params.maxSteps);
+				const mstep = mdist * percent;
+				let stepCount = 0;
+
+				// perform multiple iterations toward the current mouse pose for a consistent stroke
+				// TODO: recast here so he cursor is on the surface of the model which requires faster
+				// refitting of the model
+				const changedTriangles = new Set();
+				const changedIndices = new Set();
+				const traversedNodeIndices = new Set();
+				const sets = {
+					accumulatedTriangles: changedTriangles,
+					accumulatedIndices: changedIndices,
+					accumulatedTraversedNodeIndices: traversedNodeIndices,
+				};
+				while (castDist > step && mdist > (params.size * 200) / hit.distance) {
+					lastMouse.lerp(mouse, percent);
+					lastCastPose.lerp(hit.point, percent);
+					castDist -= step;
+					mdist -= mstep;
+
+					performStroke(lastCastPose, brush, false, sets);
+
+					if (params.symmetrical) {
+						lastCastPose.x *= -1;
+						performStroke(lastCastPose, symmetryBrush, false, sets);
+						lastCastPose.x *= -1;
+					}
+
+					stepCount++;
+					if (stepCount > params.maxSteps) {
+						break;
+					}
+				}
+
+				// refit the bounds and update the normals if we adjusted the mesh
+				if (stepCount > 0) {
+					// refit bounds and normal updates could happen after every stroke
+					// so it's up to date for the next one because both of those are used when updating
+					// the model but it's faster to do them here.
+					updateNormals(changedTriangles, changedIndices);
+					targetMesh.geometry.boundsTree.refit(traversedNodeIndices);
+
+					if (bvhHelper.parent !== null) {
+						bvhHelper.update();
+					}
+				} else {
+					performStroke(hit.point, brush, true);
+					if (params.symmetrical) {
+						hit.point.x *= -1;
+						performStroke(hit.point, symmetryBrush, true);
+						hit.point.x *= -1;
+					}
+				}
+			}
 		} else {
-			mesh.material.dispose();
+			// if we didn't hit
+			controls.enabled = true;
+			brush.visible = false;
+			symmetryBrush.visible = false;
+			lastMouse.copy(mouse);
+			lastCastPose.setScalar(Infinity);
 		}
 	}
+
+	lastMouseState = mouseState;
+
+	renderer.render(scene, camera);
+	stats.end();
 }
-
-
-animate();
