@@ -25,7 +25,7 @@ let scene: THREE.Scene,
 	controls: OrbitControls;
 let targetMesh: THREE.Mesh,
 	brush: THREE.Mesh,
-	symmetryBrush: THREE.Mesh,
+	// symmetryBrush: THREE.Mesh,
 	bvhHelper: THREE.Object3D<THREE.Object3DEventMap>;
 let normalZ = new THREE.Vector3(0, 0, 1);
 let brushActive = false;
@@ -40,12 +40,11 @@ let material: THREE.Material,
 const params = {
 	matcap: "Clay",
 
-	size:50,
+	size:5,
 	brush: "clay",
 	intensity: 50,
 	maxSteps: 10,
 	invert: false,
-	symmetrical: true,
 	flatShading: false,
 
 	depth: 10,
@@ -67,7 +66,7 @@ async function reset() {
 
 	// merge the vertices because they're not already merged
 	// let geometry2: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1, 100);
-	let geometry = await LoadSTLGeometry('models/model2.stl');
+	let geometry = await LoadSTLGeometry('models/model.stl');
 
 	geometry.deleteAttribute("uv");
 	geometry = BufferGeometryUtils.mergeVertices(geometry);
@@ -79,7 +78,6 @@ async function reset() {
 	// targetMesh = new THREE.Mesh(geometry2, material);
 
 	targetMesh =  LoadSTLModel(geometry, material);
-	console.log(targetMesh)
 
 	targetMesh.frustumCulled = false;
 	scene.add(targetMesh);
@@ -112,8 +110,8 @@ function init() {
 	scene = new THREE.Scene();
 	scene.fog = new THREE.Fog(0x263238 / 2, 20, 60);
 
-	const light = new THREE.DirectionalLight(0xffffff, 0.5);
-	light.position.set(1, 1, 1);
+	const light = new THREE.DirectionalLight(0xffffff, 0.9);
+	light.position.set(10, 10, 10);
 	scene.add(light);
 	scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
@@ -135,12 +133,9 @@ function init() {
 	brush.material.color.set(0xfb8c00);
 	scene.add(brush);
 
-	symmetryBrush = brush.clone();
-	scene.add(symmetryBrush);
-
 	// camera setup
-	camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50);
-	camera.position.set(100, 0, 3);
+	camera = new THREE.PerspectiveCamera(100, window.innerWidth / window.innerHeight, 0.1, 50);
+	camera.position.set(50, 0, 3);
 	camera.far = 100;
 	camera.updateProjectionMatrix();
 
@@ -179,10 +174,9 @@ function init() {
 
 	const sculptFolder = gui.addFolder("Sculpting");
 	sculptFolder.add(params, "brush", ["normal", "clay", "flatten"]);
-	sculptFolder.add(params, "size").min(0.025).max(50).step(0.5);
+	sculptFolder.add(params, "size").min(0.025).max(5).step(0.5);
 	sculptFolder.add(params, "intensity").min(1).max(100).step(1);
 	sculptFolder.add(params, "maxSteps").min(1).max(25).step(1);
-	sculptFolder.add(params, "symmetrical");
 	sculptFolder.add(params, "invert");
 	sculptFolder.add(params, "flatShading").onChange((value) => {
 		targetMesh.material.flatShading = value;
@@ -272,18 +266,18 @@ function init() {
 	});
 
 	window.addEventListener("wheel", function (e) {
-		let delta = e.deltaY;
+		// let delta = e.deltaY;
 
-		if (e.deltaMode === 1) {
-			delta *= 40;
-		}
+		// if (e.deltaMode === 1) {
+		// 	delta *= 40;
+		// }
 
-		if (e.deltaMode === 2) {
-			delta *= 40;
-		}
+		// if (e.deltaMode === 2) {
+		// 	delta *= 40;
+		// }
 
-		params.size += delta * 0.0001;
-		params.size = Math.max(Math.min(params.size, 0.25), 0.025);
+		// params.size += delta * 0.0001;
+		// params.size = Math.max(Math.min(params.size, 0.25), 0.025);
 		gui.controllersRecursive().forEach((c) => c.updateDisplay());
 	});
 
@@ -527,7 +521,7 @@ function render() {
 	if (controls.active || !brushActive) {
 		// If the controls are being used then don't perform the strokes
 		brush.visible = false;
-		symmetryBrush.visible = false;
+		// symmetryBrush.visible = false;
 		lastCastPose.setScalar(Infinity);
 	} else {
 		const raycaster = new THREE.Raycaster();
@@ -541,10 +535,10 @@ function render() {
 			brush.scale.set(params.size, params.size, 0.1);
 			brush.position.copy(hit.point);
 
-			symmetryBrush.visible = params.symmetrical;
-			symmetryBrush.scale.set(params.size, params.size, 0.1);
-			symmetryBrush.position.copy(hit.point);
-			symmetryBrush.position.x *= -1;
+			// symmetryBrush.visible = params.symmetrical;
+			// symmetryBrush.scale.set(params.size, params.size, 0.1);
+			// symmetryBrush.position.copy(hit.point);
+			// symmetryBrush.position.x *= -1;
 
 			controls.enabled = false;
 
@@ -557,11 +551,11 @@ function render() {
 			// If the mouse isn't pressed don't perform the stroke
 			if (!(mouseState || lastMouseState)) {
 				performStroke(hit.point, brush, true);
-				if (params.symmetrical) {
-					hit.point.x *= -1;
-					performStroke(hit.point, symmetryBrush, true);
-					hit.point.x *= -1;
-				}
+				// if (params.symmetrical) {
+				// 	hit.point.x *= -1;
+				// 	// performStroke(hit.point, symmetryBrush, true);
+				// 	hit.point.x *= -1;
+				// }
 
 				lastMouse.copy(mouse);
 				lastCastPose.copy(hit.point);
@@ -596,11 +590,11 @@ function render() {
 
 					performStroke(lastCastPose, brush, false, sets);
 
-					if (params.symmetrical) {
-						lastCastPose.x *= -1;
-						performStroke(lastCastPose, symmetryBrush, false, sets);
-						lastCastPose.x *= -1;
-					}
+					// if (params.symmetrical) {
+					// 	lastCastPose.x *= -1;
+					// 	// performStroke(lastCastPose, symmetryBrush, false, sets);
+					// 	lastCastPose.x *= -1;
+					// }
 
 					stepCount++;
 					if (stepCount > params.maxSteps) {
@@ -621,18 +615,18 @@ function render() {
 					}
 				} else {
 					performStroke(hit.point, brush, true);
-					if (params.symmetrical) {
-						hit.point.x *= -1;
-						performStroke(hit.point, symmetryBrush, true);
-						hit.point.x *= -1;
-					}
+					// if (params.symmetrical) {
+					// 	hit.point.x *= -1;
+					// 	// performStroke(hit.point, symmetryBrush, true);
+					// 	hit.point.x *= -1;
+					// }
 				}
 			}
 		} else {
 			// if we didn't hit
 			controls.enabled = true;
 			brush.visible = false;
-			symmetryBrush.visible = false;
+			// symmetryBrush.visible = false;
 			lastMouse.copy(mouse);
 			lastCastPose.setScalar(Infinity);
 		}
